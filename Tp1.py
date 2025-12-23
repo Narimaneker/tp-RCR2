@@ -28,6 +28,7 @@ class DempsterShaferGUI:
         # Create tabs
         self.create_scenario_tab()
         self.create_sensors_tab()
+        self.create_belief_plausibility_tab()
         self.create_fusion_tab()
         self.create_theory_tab()
         
@@ -102,6 +103,58 @@ Objectif: Combiner les trois sources pour identifier l'obstacle
         
         self.radar_text = tk.Text(radar_frame, height=5, width=80, font=('Courier', 9))
         self.radar_text.pack()
+    
+    def create_belief_plausibility_tab(self):
+        """Create tab for Belief and Plausibility display"""
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Belief & Plausibility")
+        
+        # Title and info
+        title = tk.Label(tab, text="Calcul de Belief et Plausibility", 
+                        font=('Arial', 14, 'bold'))
+        title.pack(pady=10)
+        
+        info_frame = tk.Frame(tab, bg='lightyellow', padx=15, pady=10)
+        info_frame.pack(fill='x', padx=20, pady=5)
+        info_text = "Bel(A) = support minimum | Pl(A) = support maximum | Intervalle: [Bel(A), Pl(A)]"
+        tk.Label(info_frame, text=info_text, bg='lightyellow', font=('Arial', 9)).pack()
+        
+        # AVANT FUSION
+        avant_label = tk.Label(tab, text="📊 AVANT FUSION (Sources individuelles)", 
+                              font=('Arial', 12, 'bold'), fg='blue')
+        avant_label.pack(pady=(10, 5))
+        
+        avant_frame = tk.LabelFrame(tab, text="Valeurs Bel et Pl pour chaque capteur",
+                                    font=('Arial', 10, 'bold'), padx=10, pady=10)
+        avant_frame.pack(fill='both', expand=True, padx=20, pady=5)
+        
+        self.belief_avant_text = tk.Text(avant_frame, height=12, width=85, font=('Courier', 9))
+        self.belief_avant_text.pack(fill='both', expand=True)
+        
+        # Add scrollbar
+        scrollbar1 = ttk.Scrollbar(avant_frame, command=self.belief_avant_text.yview)
+        scrollbar1.pack(side='right', fill='y')
+        self.belief_avant_text.config(yscrollcommand=scrollbar1.set)
+        
+        # Separator
+        ttk.Separator(tab, orient='horizontal').pack(fill='x', padx=20, pady=10)
+        
+        # APRÈS FUSION
+        apres_label = tk.Label(tab, text="🎯 APRÈS FUSION (Résultat combiné)", 
+                              font=('Arial', 12, 'bold'), fg='green')
+        apres_label.pack(pady=(5, 5))
+        
+        apres_frame = tk.LabelFrame(tab, text="Valeurs Bel et Pl après fusion complète",
+                                    font=('Arial', 10, 'bold'), padx=10, pady=10, bg='lightgreen')
+        apres_frame.pack(fill='both', expand=True, padx=20, pady=5)
+        
+        self.belief_apres_text = tk.Text(apres_frame, height=8, width=85, font=('Courier', 10, 'bold'))
+        self.belief_apres_text.pack(fill='both', expand=True)
+        
+        # Add scrollbar
+        scrollbar2 = ttk.Scrollbar(apres_frame, command=self.belief_apres_text.yview)
+        scrollbar2.pack(side='right', fill='y')
+        self.belief_apres_text.config(yscrollcommand=scrollbar2.set)
     
     def create_fusion_tab(self):
         tab = ttk.Frame(self.notebook)
@@ -221,12 +274,13 @@ AVANTAGES DE LA THÉORIE DS
         }
         
         self.radar_data = {
-            frozenset(['Vehicle']): 0.60,
+            frozenset(['Pedestrian']): 0.60,
             frozenset(['Cyclist']): 0.25,
             frozenset(['Cyclist', 'Vehicle']): 0.15
         }
         
         self.display_sensor_data()
+        self.calculate_belief_plausibility_avant()
     
     def display_sensor_data(self):
         """Display sensor data in text widgets"""
@@ -308,18 +362,74 @@ AVANTAGES DE LA THÉORIE DS
                 plausibility += mass
         return plausibility
     
-    def pignistic_probability(self, mass_func: Dict) -> Dict[str, float]:
-        """Calculate pignistic probability"""
-        prob = {elem: 0.0 for elem in self.frame_elements}
+    def format_belief_plausibility(self, mass_func: Dict, source_name: str) -> str:
+        """Format belief and plausibility for display"""
+        result = f"\n{'='*70}\n"
+        result += f"  {source_name}\n"
+        result += f"{'='*70}\n"
+        result += f"{'Hypothèse':<20} | {'Bel(A)':<10} | {'Pl(A)':<10} | Intervalle\n"
+        result += "-" * 70 + "\n"
         
-        for focal, mass in mass_func.items():
-            cardinality = len(focal)
-            if cardinality > 0:
-                share = mass / cardinality
-                for elem in focal:
-                    prob[elem] += share
+        for elem in self.frame_elements:
+            hypothesis = frozenset([elem])
+            bel = self.calculate_belief(mass_func, hypothesis)
+            pl = self.calculate_plausibility(mass_func, hypothesis)
+            result += f"{elem:<20} | {bel:>8.4f}   | {pl:>8.4f}   | [{bel:.4f}, {pl:.4f}]\n"
         
-        return prob
+        return result
+    
+    def calculate_belief_plausibility_avant(self):
+        """Calculate and display Belief and Plausibility before fusion"""
+        self.belief_avant_text.delete('1.0', tk.END)
+        
+        result = "CALCUL DES VALEURS Bel ET Pl POUR CHAQUE CAPTEUR (AVANT FUSION)\n"
+        result += "="*70 + "\n"
+        
+        # Camera
+        result += self.format_belief_plausibility(self.camera_data, "🎥 CAMÉRA")
+        
+        # LIDAR
+        result += self.format_belief_plausibility(self.lidar_data, "📡 LIDAR")
+        
+        # Radar
+        result += self.format_belief_plausibility(self.radar_data, "📶 RADAR")
+        
+        self.belief_avant_text.insert('1.0', result)
+    
+    def calculate_belief_plausibility_apres(self, final_mass: Dict):
+        """Calculate and display Belief and Plausibility after fusion"""
+        self.belief_apres_text.delete('1.0', tk.END)
+        
+        result = "CALCUL DES VALEURS Bel ET Pl APRÈS FUSION COMPLÈTE\n"
+        result += "="*70 + "\n"
+        result += "(Caméra ⊕ LIDAR ⊕ Radar)\n"
+        
+        result += self.format_belief_plausibility(final_mass, "🎯 RÉSULTAT FINAL")
+        
+        # Add interpretation
+        result += "\n" + "="*70 + "\n"
+        result += "INTERPRÉTATION:\n"
+        result += "-"*70 + "\n"
+        
+        for elem in self.frame_elements:
+            hypothesis = frozenset([elem])
+            bel = self.calculate_belief(final_mass, hypothesis)
+            pl = self.calculate_plausibility(final_mass, hypothesis)
+            width = pl - bel
+            
+            result += f"\n{elem}:\n"
+            result += f"  • Certitude minimale (Bel): {bel*100:.2f}%\n"
+            result += f"  • Certitude maximale (Pl):  {pl*100:.2f}%\n"
+            result += f"  • Largeur d'intervalle:     {width*100:.2f}%\n"
+            
+            if width < 0.1:
+                result += f"  → Très faible incertitude\n"
+            elif width < 0.3:
+                result += f"  → Incertitude modérée\n"
+            else:
+                result += f"  → Forte incertitude\n"
+        
+        self.belief_apres_text.insert('1.0', result)
     
     def calculate_fusion(self):
         """Perform fusion calculation"""
@@ -345,9 +455,6 @@ AVANTAGES DE LA THÉORIE DS
                 step1_combined, self.radar_data
             )
             
-            # Calculate pignistic probability
-            pig_prob = self.pignistic_probability(final_combined)
-            
             # Display step 2
             self.step2_text.delete('1.0', tk.END)
             result2 = "MASSE FINALE (Caméra ⊕ LIDAR ⊕ Radar):\n"
@@ -359,22 +466,18 @@ AVANTAGES DE LA THÉORIE DS
             result2 += "\n" + "=" * 60 + "\n"
             result2 += f"Conflit total K₂ = {final_conflict:.4f} ({final_conflict*100:.2f}%)\n"
             result2 += "\n" + "=" * 60 + "\n"
-            result2 += "PROBABILITÉ PIGNISTIQUE (pour décision):\n"
-            result2 += "=" * 60 + "\n"
-            
-            for elem, prob in sorted(pig_prob.items(), key=lambda x: -x[1]):
-                bar_length = int(prob * 40)
-                bar = "█" * bar_length
-                result2 += f"{elem:<15} | {prob*100:5.1f}% | {bar}\n"
             
             self.step2_text.insert('1.0', result2)
             
+            # Calculate and display Belief and Plausibility AFTER fusion
+            self.calculate_belief_plausibility_apres(final_combined)
+            
             # Display decision
-            best_hypothesis = max(pig_prob.items(), key=lambda x: x[1])
-            decision_msg = f"🎯 DÉCISION: L'obstacle est un {best_hypothesis[0]}\n"
+            best_hypothesis = max(final_combined.items(), key=lambda x: x[1])
+            decision_msg = f"🎯 DÉCISION: L'obstacle est un {', '.join(sorted(best_hypothesis[0]))}\n"
             decision_msg += f"   Confiance: {best_hypothesis[1]*100:.1f}%\n\n"
             
-            if best_hypothesis[0] in ['Pedestrian', 'Cyclist']:
+            if any(elem in best_hypothesis[0] for elem in ['Pedestrian', 'Cyclist']):
                 decision_msg += "⚠️  ACTION: FREINAGE D'URGENCE ET ARRÊT COMPLET"
             else:
                 decision_msg += "⚠️  ACTION: RALENTISSEMENT ET CONTOURNEMENT"
@@ -382,7 +485,7 @@ AVANTAGES DE LA THÉORIE DS
             self.decision_text.config(text=decision_msg)
             
             messagebox.showinfo("Calcul terminé", 
-                              f"Fusion complétée!\nMeilleure hypothèse: {best_hypothesis[0]} ({best_hypothesis[1]*100:.1f}%)")
+                              f"Fusion complétée!\nMeilleure hypothèse: {', '.join(sorted(best_hypothesis[0]))} ({best_hypothesis[1]*100:.1f}%)")
             
         except Exception as e:
             messagebox.showerror("Erreur", f"Erreur lors du calcul:\n{str(e)}")
@@ -396,4 +499,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
